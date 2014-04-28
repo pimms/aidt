@@ -1,11 +1,14 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "sample.h"
 #include "dtree.h"
 
 
 int main(int argc, char **argv) {
+	const bool interactive = (argc == 2 && !strcmp(argv[1], "-i")) ;
+
 	// Sample data
 	const int num_samples = 40;
 	struct sample samples[] = {
@@ -55,7 +58,8 @@ int main(int argc, char **argv) {
 
 	struct decision *dec = dt_create(samples, num_samples);
 
-	while (false) {
+	
+	while (interactive) {
 		struct sample sample;
 
 		printf("Topic (0=ASTAR, 1=DTREE, 2=GAMES):  ");
@@ -69,7 +73,27 @@ int main(int argc, char **argv) {
 
 		printf("Decision: %i\n", dt_decide(dec, &sample));
 		getchar();
+	} 
+	
+	if (!interactive) {
+		int pass = 0;
+
+		for (int i=0; i<num_samples; i++) {
+			int res = dt_decide(dec, &samples[i]);
+
+			if (res == -1)
+				printf("Invalid decision for student %i\n", i+1);
+			else if (res == 1)
+				pass++;
+
+			if (res != samples[i].pass) 
+				printf("Inconsistent result for student %i\n", i+1);
+		}
+
+		printf("%i pass\n%i fail\n", pass, num_samples-pass);
 	}
+
+	
 
 	dt_destroy(dec);
 	return 0;
