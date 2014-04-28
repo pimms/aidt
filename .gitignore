@@ -12,7 +12,7 @@
 *.la
 *.a
 
-ann
+dt
 build/
 CMakeCache.txt
 CMakeFiles
