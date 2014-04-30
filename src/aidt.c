@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "sample.h"
 #include "dtree.h"
@@ -57,6 +58,8 @@ int main(int argc, char **argv) {
 	//sample_stats(samples, num_samples);
 
 	struct decision *dec = dt_create(samples, num_samples);
+
+	print_decision_tree(dec, stdout);
 
 	
 	while (interactive) {

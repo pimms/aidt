@@ -82,8 +82,13 @@ dt_parse_samples(const struct sample *samples, int max, struct dt_where *where)
 		return NULL;
 	}
 
+	// Todo: check for nonambiguity with the current
+	// where-clause
+
+	// Get the best field to categorize the nodes on
 	int bestField = best_field_where(wsamples, max, where);
 	if (bestField < 0) {
+		// No best field - all fields are categorized on in supernodes
 		struct decision *d = dt_alloc();
 		d->value = field_value(wsamples, SAMPLE_RESULT_FIELD);
 		free(wsamples);
@@ -114,21 +119,23 @@ dt_parse_samples(const struct sample *samples, int max, struct dt_where *where)
 		if (!p) dbase = d;
 		else 	p->next = d;
 
+		// Parse the nodes with the temporary WHERE-clause
 		struct decision *dst = dt_parse_samples(wsamples, count, where);
 		if (dst) {
 			d->dest = dst;
 			d->field = bestField;
 			d->value = vals[i];
 		} else {
+			// No valid subtree found: this is a leaf node
 			d->value = field_value(wsamples, SAMPLE_RESULT_FIELD);
 		}
 
+		// Clean up temporary WHERE-clause
 		if (wbase == w) {
 			wbase = NULL;
 			where = NULL;
 		} else 
 			wbase->next = NULL;
-
 		dt_where_destroy(w);
 	}
 
@@ -216,4 +223,85 @@ dt_where_destroy(struct dt_where *where)
 	if (where->next) 
 		dt_where_destroy(where->next);
 	free(where);
+}
+
+
+/** Printing of Decision Tree **/
+struct dt_stack {
+	int size;
+	int ptr;
+	const struct decision **d;
+};
+
+static struct dt_stack* dt_stack_create();
+static void dt_stack_destroy(struct dt_stack*);
+static void dt_stack_push(struct dt_stack*, const struct decision*);
+static const struct decision* dt_stack_pop(struct dt_stack*);
+
+
+void
+print_decision_tree(const struct decision *d, FILE *file) 
+{
+	struct dt_stack *stk = dt_stack_create();
+	dt_stack_push(stk, d);
+
+	while (stk->ptr != 0) {
+		const struct decision *d = dt_stack_pop(stk);
+		if (d->dest) {
+			dt_stack_push(stk, d->dest);
+
+			fprintf(file, "[NODE FIELD %i]\n", d->field);
+			while (d) {
+				fprintf(file, "value %i\n", d->value);
+				d = d->next;
+			}
+			printf("\n");
+		} else {
+			fprintf(file, "leaf node: %i  =  %i\n\n", d->field, d->value);
+		}
+	}
+
+	dt_stack_destroy(stk);
+}
+
+static struct dt_stack*
+dt_stack_create()
+{
+	struct dt_stack *s = (struct dt_stack*)malloc(sizeof(struct dt_stack));
+	memset(s, 0, sizeof(struct dt_stack));
+	return s;
+}
+
+static void 
+dt_stack_destroy(struct dt_stack *s)
+{
+	free(s->d);
+	free(s);
+}
+
+static void
+dt_stack_push(struct dt_stack *s, const struct decision *d)
+{
+	if (s->d == NULL) {
+		s->size = 4;
+		s->ptr = 0;
+		int sz = s->size * sizeof(struct decision*);
+		s->d = (const struct decision**)malloc(sz);
+	}
+
+	if (s->ptr == s->size) {
+		s->size *= 2;
+		int sz = sizeof(struct decision*) * s->size;
+		s->d = (const struct decision**)realloc(s->d, sz);
+	}
+
+	s->d[s->ptr++] = d;
+}	
+
+static const struct decision*
+dt_stack_pop(struct dt_stack *s)
+{
+	if (s->ptr == 0)
+		return NULL;
+	return s->d[--s->ptr];
 }

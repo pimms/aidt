@@ -2,6 +2,7 @@
 #define __DTREE_H__
 
 #include "sample.h"
+#include <stdio.h>
 
 struct decision;
 struct dtree;
@@ -21,8 +22,11 @@ struct decision {
 };
 
 
+
 struct decision* dt_create(const struct sample*, int count);
 int dt_decide(const struct decision*, const struct sample*);
 void dt_destroy(struct decision*);
+
+void print_decision_tree(const struct decision*, FILE*);
 
 #endif /*__DTREE_H__*/
