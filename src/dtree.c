@@ -24,6 +24,7 @@ static struct sample* filter_where(const struct sample*, int,
 								   struct dt_where*, int *n);
 static int best_field_where(const struct sample*, int, struct dt_where*);
 static bool is_field_clausule(struct dt_where*, unsigned);
+static bool is_set_ambiguous(const struct sample*, int, struct dt_where*);
 
 
 struct decision*
@@ -203,6 +204,29 @@ is_field_clausule(struct dt_where *where, unsigned field)
 	}
 
 	return false;
+}
+
+static bool
+is_set_ambiguous(const struct sample *samples, int count, struct dt_where *where)
+{
+	// Create a "correct" sample from all the where-clauses and the first
+	// element in the set. ALL fields in all the other samples should match.
+	struct sample s;
+	
+	memcpy(&s, &samples[0], sizeof(struct sample));
+	while (where) {
+		set_field_value(&s, where->field, where->value);
+		where = where->next;
+	}
+
+	for (int i=0; i<count; i++) {
+		for (int f=0; f<SAMPLE_NUM_FIELDS; f++) {
+			if (field_value(&samples[i], f) != field_value(&s, f)) 
+				return false;
+		}
+	}
+
+	return true;
 }
 
 

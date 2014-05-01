@@ -150,3 +150,10 @@ field_value(const struct sample *sample, unsigned field)
 	int *is = (int*) sample;
 	return is[field];
 }
+
+void 
+set_field_value(const struct sample *sample, unsigned field, int value)
+{
+	int *is = (int*)sample;
+	is[field] = value;
+}

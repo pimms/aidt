@@ -61,4 +61,8 @@ int value_count(const struct sample*, int count, int value, unsigned field);
  */
 int field_value(const struct sample*, unsigned field);
 
+/* Set field value [field] to value
+ */
+void set_field_value(const struct sample*, unsigned field, int value);
+
 #endif /* __SAMPLE_H__ */
