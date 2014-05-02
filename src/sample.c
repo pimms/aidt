@@ -5,22 +5,81 @@
 #include <math.h>
 
 
-/* Perform the following function on all the elements
- * in samples:
- * 		SIGMA(0,count){fnc(fi)}
- *
- * For instance, to do gini_impurity:
- * 		fnc(fi) = fi-(fi*fi)
- *
- * Information gain:
- * 		fnc(fi) = -fi*log2(fi)
- */
-static double field_stat(const struct sample*, int, unsigned, 
-						 double(*fnc)(double));
-static double field_stat_gini(double fi);
-static double field_stat_igain(double fi);
+/* Where */
+struct where* 
+where_alloc()
+{
+	struct where *where;
+	where = (struct where*)malloc(sizeof(struct where));
+	memset(where, 0, sizeof(struct where));
+
+	return where;
+}
+
+void
+where_destroy(struct where *where)
+{
+	if (where->next) 
+		where_destroy(where->next);
+	free(where);
+}
+
+void
+where_print(struct where *where) 
+{
+	printf("WHERE: [");
+
+	while (where) {
+		printf("%i=%i", where->field, where->value);
+		if (where->next) 
+			printf(", ");
+		where = where->next;
+	}
+
+	printf("]\n");
+}
+
+bool 
+is_field_clausule(struct where *where, unsigned field)
+{
+	while (where) {
+		if (where->field == field)
+			return true;
+		where = where->next;
+	}
+
+	return false;
+}
+
+struct sample*
+filter_where(const struct sample *samples, int count, 
+			 struct where *where, int *n)
+{
+	*n = 0;
+	const int sz = count * sizeof(struct sample);
+	struct sample *s = (struct sample*)malloc(sz);
+
+	for (int i=0; i<count; i++) {
+		struct where *w = where;
+		bool all_success = true;
+
+		while (w) {
+			if (field_value(&samples[i], w->field) == w->value) 
+				all_success = false;
+			w = w->next;
+		}
+
+		if (all_success) {
+			s[(*n)++] = samples[i];
+		}
+	}
+
+	return s;
+}
 
 
+
+/* Sample */
 void
 sample_stats(const struct sample *samples, int count) 
 {
@@ -44,22 +103,8 @@ sample_stats(const struct sample *samples, int count)
 	}
 }
 
-
 double
 gini_impurity(const struct sample *samples, int count, unsigned field)
-{
-	return field_stat(samples, count, field, field_stat_gini);
-}
-
-double 
-info_gain(const struct sample *samples, int count, unsigned field)
-{
-	return field_stat(samples, count, field, field_stat_igain);
-}
-
-static double
-field_stat(const struct sample *samples, int count, unsigned field,
-		   double (*fnc)(double))
 {
 	double sum = 0.0;
 	int unique = 0;
@@ -70,7 +115,7 @@ field_stat(const struct sample *samples, int count, unsigned field,
 		occurs[i] = value_count(samples, count, vals[i], field);
 		
 		double fi = (double)occurs[i] / (double)count;
-		sum += fnc(fi);
+		sum += fi - (fi * fi);
 	}
 
 	free(vals);
@@ -79,18 +124,71 @@ field_stat(const struct sample *samples, int count, unsigned field,
 	return sum;
 }
 
-static double 
-field_stat_gini(double fi) 
+double 
+info_gain(const struct sample *samples, int count, unsigned field)
 {
-	return fi - (fi * fi);
+	const bool ig_print = false;
+
+
+	int unique;
+	int *vals = unique_values(samples, count, &unique, field);
+	int *occurs = (int*)malloc(sizeof(int) * unique);
+	for (int i=0; i<unique; i++)
+		occurs[i] = value_count(samples, count, vals[i], field);
+
+	double e = set_entropy(samples, count);
+	if (ig_print)
+		printf("Entropy(S, %i) = %g", field, e);
+
+	for (int i=0; i<unique; i++) {
+
+		struct where *where = where_alloc();
+		where->field = field;
+		where->value = vals[i];
+
+		int svcount = 0;
+		struct sample *sv = filter_where(samples, count, where, &svcount);
+
+		double se = set_entropy(sv, svcount);
+		double n = (double)occurs[i] / (double)count;
+		n *= se;
+		e -= n;
+
+		if (ig_print)
+			printf(" - (%i / %i) * %g", occurs[i], count, se);
+
+		where_destroy(where);
+		free(sv);
+	}
+
+	if (ig_print)
+		printf(" = %g\n", e);
+
+	free(vals);
+	free(occurs);
+	return e;
 }
 
-static double
-field_stat_igain(double fi)
+double 
+set_entropy(const struct sample *samples, int count)
 {
-	if (fi != 0.0) 
-		return -(fi * log2(fi));
-	return 0.0;
+	int unique = 0;
+	int *vals = unique_values(samples, count, &unique, SAMPLE_RESULT_FIELD);
+
+	int *occurs = (int*)malloc(sizeof(int) * unique);
+	for (int i=0; i<unique; i++) {
+		occurs[i] = value_count(samples, count, vals[i], SAMPLE_RESULT_FIELD);
+	}
+
+	double e = 0.0;
+	for (int i=0; i<unique; i++) {
+		double f = (double)occurs[i] / (double)count;
+		e -= f * log2(f);
+	}
+
+	free(occurs);
+	free(vals);
+	return e;
 }
 
 

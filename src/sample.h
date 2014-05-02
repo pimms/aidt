@@ -1,6 +1,7 @@
 #ifndef __SAMPLE_H__
 #define __SAMPLE_H__
 
+#include "aidt.h"
 #include <stdbool.h>
 
 #define SAMPLE_NUM_FIELDS 4
@@ -31,6 +32,26 @@ struct sample  {
 };
 
 
+/* Structure used when splitting a set of samples
+ */
+struct where {
+	struct where *next;
+	unsigned field;
+	int value;
+};
+
+struct where* where_alloc();
+void where_destroy(struct where*);
+void where_print(struct where*);
+bool is_field_clausule(struct where*, unsigned);
+
+/* Create a subset of the samples given a sort on the where
+ * clauses. The returned array must be manually freed by the caller, and 
+ * the number of elements in the new set assigned to the "n" variable.
+ */
+struct sample* filter_where(const struct sample*, int, 
+						    struct where*, int *n);
+
 
 /* Print statistics about the samples
  */
@@ -40,7 +61,8 @@ void sample_stats(const struct sample *samples, int count);
  */
 double gini_impurity(const struct sample *samples, int count, unsigned field);
 
-/* Calculate the information gain of field [field] for all the samples
+/* Calculates the information gain if the provided set (samples) is
+ * divided based upon (field).
  */
 double info_gain(const struct sample *samples, int count, unsigned field);
 
@@ -64,5 +86,7 @@ int field_value(const struct sample*, unsigned field);
 /* Set field value [field] to value
  */
 void set_field_value(const struct sample*, unsigned field, int value);
+
+double set_entropy(const struct sample*, int count);
 
 #endif /* __SAMPLE_H__ */

@@ -5,26 +5,13 @@
 
 
 
-/* Structure to be used when creating the decision tree to group
- * samples with similar preconditions together. 
- */
-struct dt_where {
-	struct dt_where *next;
-	unsigned field;
-	int value;
-};
-
-static struct dt_where* dt_where_alloc();
-static void dt_where_destroy(struct dt_where*);
 
 static struct decision* dt_alloc();
 static struct decision* dt_parse_samples(const struct sample*, int,
-										 struct dt_where*);
-static struct sample* filter_where(const struct sample*, int, 
-								   struct dt_where*, int *n);
-static int best_field_where(const struct sample*, int, struct dt_where*);
-static bool is_field_clausule(struct dt_where*, unsigned);
-static bool is_set_ambiguous(const struct sample*, int, struct dt_where*);
+										 struct where*);
+static int best_field_where(const struct sample*, int, struct where*);
+static bool is_set_ambiguous(const struct sample*, int);
+static void print_set_info(const struct sample*, int, struct where*);
 
 
 struct decision*
@@ -36,7 +23,7 @@ dt_create(const struct sample *samples, int count)
 int 
 dt_decide(const struct decision *dec, const struct sample *sample)
 {
-	while (dec->dest) {
+	while (dec && dec->dest) {
 		while (dec && dec->value != field_value(sample, dec->field)) 
 			dec = dec->next;
 		if (!dec) 
@@ -67,8 +54,13 @@ dt_alloc()
 }
 
 static struct decision*
-dt_parse_samples(const struct sample *samples, int max, struct dt_where *where)
+dt_parse_samples(const struct sample *samples, int max, struct where *where)
 {
+	/* I believe this entire function is wrong, and it must subsequently
+	 * be duly punished. The code is however too complicated to comprehend
+	 * by mere mortals, so I will rewrite the entire thing first thing 
+	 * in the evening.
+	 */
 	if (max <= 0) {
 		printf("error: empty set given to dt_parse_samples\n");
 		return NULL;
@@ -83,14 +75,14 @@ dt_parse_samples(const struct sample *samples, int max, struct dt_where *where)
 		return NULL;
 	}
 
-	// Todo: check for nonambiguity with the current
-	// where-clause
+	print_set_info(samples, max, where);
 
-	// Get the best field to categorize the nodes on
+	// If there is no best field or the set is unambiguous, return
+	// a leaf node
 	int bestField = best_field_where(wsamples, max, where);
-	if (bestField < 0) {
-		// No best field - all fields are categorized on in supernodes
+	if (bestField < 0 || !is_set_ambiguous(samples, max)) {
 		struct decision *d = dt_alloc();
+		d->field = SAMPLE_RESULT_FIELD;
 		d->value = field_value(wsamples, SAMPLE_RESULT_FIELD);
 		free(wsamples);
 		return d;
@@ -100,13 +92,13 @@ dt_parse_samples(const struct sample *samples, int max, struct dt_where *where)
 	int *vals = unique_values(samples, max, &unique, bestField);
 	struct decision *dbase = NULL;
 	struct decision *d = NULL;
-	struct dt_where *wbase = where;
+	struct where *wbase = where;
 
 	while (wbase && wbase->next)
 		wbase = wbase->next;
 
 	for (int i=0; i<unique; i++) {
-		struct dt_where *w = dt_where_alloc();
+		struct where *w = where_alloc();
 		w->field = bestField;
 		w->value = vals[i];
 		if (!where) {
@@ -123,11 +115,13 @@ dt_parse_samples(const struct sample *samples, int max, struct dt_where *where)
 		// Parse the nodes with the temporary WHERE-clause
 		struct decision *dst = dt_parse_samples(wsamples, count, where);
 		if (dst) {
+			dst->parent = d;
 			d->dest = dst;
 			d->field = bestField;
 			d->value = vals[i];
 		} else {
 			// No valid subtree found: this is a leaf node
+			d->field = SAMPLE_RESULT_FIELD;
 			d->value = field_value(wsamples, SAMPLE_RESULT_FIELD);
 		}
 
@@ -137,7 +131,7 @@ dt_parse_samples(const struct sample *samples, int max, struct dt_where *where)
 			where = NULL;
 		} else 
 			wbase->next = NULL;
-		dt_where_destroy(w);
+		where_destroy(w);
 	}
 
 	free(vals);
@@ -145,38 +139,12 @@ dt_parse_samples(const struct sample *samples, int max, struct dt_where *where)
 	return dbase;
 }
 
-static struct sample*
-filter_where(const struct sample *samples, int count, 
-			 struct dt_where *where, int *n)
-{
-	*n = 0;
-	const int sz = count * sizeof(struct sample);
-	struct sample *s = (struct sample*)malloc(sz);
-
-	for (int i=0; i<count; i++) {
-		struct dt_where *w = where;
-		bool all_success = true;
-
-		while (w) {
-			if (field_value(&samples[i], w->field) == w->value) 
-				all_success = false;
-			w = w->next;
-		}
-
-		if (all_success) {
-			s[(*n)++] = samples[i];
-		}
-	}
-
-	return s;
-}
-
 static int
-best_field_where(const struct sample *samples, int count, struct dt_where *where)
+best_field_where(const struct sample *samples, int count, struct where *where)
 {
 	// Return the field with the lowest information gain value which is 
 	// not mentioned by any where-clause
-	double bestval = 1000000;
+	double bestval = -1000000;
 	int best = -1;
 
 	for (int i=0; i<SAMPLE_NUM_FIELDS; i++) {
@@ -184,7 +152,7 @@ best_field_where(const struct sample *samples, int count, struct dt_where *where
 			continue;
 		if (!is_field_clausule(where, i)) {
 			double ig = info_gain(samples, count, i);
-			if (ig < bestval) {
+			if (ig > bestval) {
 				bestval = ig;
 				best = i;
 			}
@@ -194,138 +162,166 @@ best_field_where(const struct sample *samples, int count, struct dt_where *where
 	return best;
 }
 
-static bool 
-is_field_clausule(struct dt_where *where, unsigned field)
+static bool
+is_set_ambiguous(const struct sample *samples, int count)
 {
-	while (where) {
-		if (where->field == field)
+	// The set is ambiguous if the result field varies in the set.
+	const unsigned f = SAMPLE_RESULT_FIELD;
+	for (int i=1; i<count; i++) {
+		if (field_value(&samples[i], f) != field_value(&samples[0], f)) 
 			return true;
-		where = where->next;
 	}
 
 	return false;
 }
 
-static bool
-is_set_ambiguous(const struct sample *samples, int count, struct dt_where *where)
+static void 
+print_set_info(const struct sample *samples, int count, struct where *where)
 {
-	// Create a "correct" sample from all the where-clauses and the first
-	// element in the set. ALL fields in all the other samples should match.
-	struct sample s;
+	printf("items: %i\n", count);
+	printf("ambiguous: %s\n", is_set_ambiguous(samples, count) ? "yes" : "no");
+	where_print(where);
 	
-	memcpy(&s, &samples[0], sizeof(struct sample));
-	while (where) {
-		set_field_value(&s, where->field, where->value);
-		where = where->next;
-	}
+	bool printed_info = false;
+	for (int i=0; i<SAMPLE_NUM_FIELDS; i++) {
+		if (i != SAMPLE_RESULT_FIELD && !is_field_clausule(where, i)) {
+			if (!printed_info) {
+				printf("Uncategorized fields:\n");
+				printed_info = true;
+			}
 
-	for (int i=0; i<count; i++) {
-		for (int f=0; f<SAMPLE_NUM_FIELDS; f++) {
-			if (field_value(&samples[i], f) != field_value(&s, f)) 
-				return false;
+			printf("field %i info gain: %g\n",
+					i, info_gain(samples, count, i));
 		}
 	}
 
-	return true;
+	printf("\n");
 }
 
-
-
-static struct dt_where* 
-dt_where_alloc()
-{
-	struct dt_where *where;
-	where = (struct dt_where*)malloc(sizeof(struct dt_where));
-	memset(where, 0, sizeof(struct dt_where));
-
-	return where;
-}
-
-static void
-dt_where_destroy(struct dt_where *where)
-{
-	if (where->next) 
-		dt_where_destroy(where->next);
-	free(where);
-}
 
 
 /** Printing of Decision Tree **/
-struct dt_stack {
+
+// Decision wrapper for printing
+struct dt_deque {
 	int size;
-	int ptr;
+	int head;
+	int tail;
 	const struct decision **d;
 };
 
-static struct dt_stack* dt_stack_create();
-static void dt_stack_destroy(struct dt_stack*);
-static void dt_stack_push(struct dt_stack*, const struct decision*);
-static const struct decision* dt_stack_pop(struct dt_stack*);
+static void print_path(const struct decision *leaf);
+
+static struct dt_deque* dt_deque_create();
+static void dt_deque_destroy(struct dt_deque*);
+static int dt_deque_size(struct dt_deque*);
+static void dt_deque_push(struct dt_deque*, const struct decision*);
+static const struct decision* dt_deque_pop_back(struct dt_deque*);
+static const struct decision* dt_deque_pop_front(struct dt_deque*);
 
 
 void
 print_decision_tree(const struct decision *d, FILE *file) 
 {
-	struct dt_stack *stk = dt_stack_create();
-	dt_stack_push(stk, d);
+	struct dt_deque *dq = dt_deque_create();
+	dt_deque_push(dq, d);
 
-	while (stk->ptr != 0) {
-		const struct decision *d = dt_stack_pop(stk);
-		if (d->dest) {
-			dt_stack_push(stk, d->dest);
-
-			fprintf(file, "[NODE FIELD %i]\n", d->field);
-			while (d) {
-				fprintf(file, "value %i\n", d->value);
-				d = d->next;
-			}
-			printf("\n");
-		} else {
-			fprintf(file, "leaf node: %i  =  %i\n\n", d->field, d->value);
-		}
+	// Iterate over all nodes, print path from leaves to root
+	while (dt_deque_size(dq) > 0) {
+		d = dt_deque_pop_back(dq);
+		
+		// Push dest on stack if exists, otherwise print
+		if (d->dest)
+			dt_deque_push(dq, d->dest);
+		else 
+			print_path(d);
+		// Push siblings on stack
+		for (struct decision *n = d->next; n; n=n->next) 
+			dt_deque_push(dq, n);
 	}
 
-	dt_stack_destroy(stk);
+
+	dt_deque_destroy(dq);
 }
 
-static struct dt_stack*
-dt_stack_create()
+static void 
+print_path(const struct decision *leaf)
 {
-	struct dt_stack *s = (struct dt_stack*)malloc(sizeof(struct dt_stack));
-	memset(s, 0, sizeof(struct dt_stack));
+	struct dt_deque *dq = dt_deque_create();
+
+	const struct decision *d = leaf;
+	dt_deque_push(dq, d);
+	d = d->parent;
+
+	while (d) {
+		dt_deque_push(dq, d);
+		d = d->parent;
+	}
+
+	// Print them in reverse order
+	while (dt_deque_size(dq) > 0) {
+		d = dt_deque_pop_back(dq);
+		printf("{%i => %i}", d->field, d->value);
+	}
+
+	printf("\n");
+
+	dt_deque_destroy(dq);
+}
+
+
+static struct dt_deque*
+dt_deque_create()
+{
+	struct dt_deque *s = (struct dt_deque*)malloc(sizeof(struct dt_deque));
+	memset(s, 0, sizeof(struct dt_deque));
 	return s;
 }
 
 static void 
-dt_stack_destroy(struct dt_stack *s)
+dt_deque_destroy(struct dt_deque *s)
 {
 	free(s->d);
 	free(s);
 }
 
+static int
+dt_deque_size(struct dt_deque *s)
+{
+	return s->tail - s->head;
+}
+
 static void
-dt_stack_push(struct dt_stack *s, const struct decision *d)
+dt_deque_push(struct dt_deque *s, const struct decision *d)
 {
 	if (s->d == NULL) {
 		s->size = 4;
-		s->ptr = 0;
+		s->tail = 0;
 		int sz = s->size * sizeof(struct decision*);
 		s->d = (const struct decision**)malloc(sz);
 	}
 
-	if (s->ptr == s->size) {
+	if (s->tail == s->size) {
 		s->size *= 2;
 		int sz = sizeof(struct decision*) * s->size;
 		s->d = (const struct decision**)realloc(s->d, sz);
 	}
 
-	s->d[s->ptr++] = d;
+	s->d[s->tail++] = d;
 }	
 
 static const struct decision*
-dt_stack_pop(struct dt_stack *s)
+dt_deque_pop_back(struct dt_deque *s)
 {
-	if (s->ptr == 0)
+	if (s->tail == s->head)
 		return NULL;
-	return s->d[--s->ptr];
+	return s->d[--s->tail];
+}
+
+static const struct decision*
+dt_deque_pop_front(struct dt_deque *s)
+{
+	if (s->head == s->tail)
+		return NULL;
+	return s->d[s->head++];
 }

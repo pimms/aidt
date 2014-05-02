@@ -6,11 +6,23 @@
 #include "sample.h"
 #include "dtree.h"
 
+#define SIMPLE_SET 
+
 
 int main(int argc, char **argv) {
 	const bool interactive = (argc == 2 && !strcmp(argv[1], "-i")) ;
 
 	// Sample data
+#ifdef SIMPLE_SET
+	const int num_samples = 5;
+	struct sample samples[] = {
+		{ASTAR, true, 0, true},
+		{ASTAR, true, 20, true},
+		{ASTAR, false, 10, true},
+		{DTREE, false, 10, false},
+		{GAMES, true, 10, true},
+	};
+#else
 	const int num_samples = 40;
 	struct sample samples[] = {
 		{ASTAR, true, 0, true},		// 1
@@ -54,33 +66,42 @@ int main(int argc, char **argv) {
 		{GAMES, true, 20, true},	// 39
 		{ASTAR, true, 15, true},	// 40
 	};
+#endif
 	
 	//sample_stats(samples, num_samples);
 
+	printf("Initial entropy: %g\n\n", set_entropy(samples, num_samples));
+
 	struct decision *dec = dt_create(samples, num_samples);
+	if (!dec) {
+		printf("ERROR: dt_create() returned NULL\n");
+		exit(1);
+	}
 
 	print_decision_tree(dec, stdout);
 
 	
-	while (interactive) {
-		struct sample sample;
+	if (interactive) {
+		printf("WARNING: If you are using custom field values for the "
+				"sample struct, the prompts make no sense. If you have "
+				"not modified the source code, ignore this warning.\n\n");
+		while (true) {
+			struct sample sample;
 
-		printf("Topic (0=ASTAR, 1=DTREE, 2=GAMES):  ");
-		scanf("%i", &sample.topic);
+			printf("Topic (0=ASTAR, 1=DTREE, 2=GAMES):  ");
+			scanf("%i", &sample.topic);
 
-		printf("Ass1 (0=fail, 1=pass):   ");
-		scanf("%i", &sample.ass1);
+			printf("Ass1 (0=fail, 1=pass):   ");
+			scanf("%i", &sample.ass1);
 
-		printf("Ass2 (0, 5, 10, 15, 20):   ");
-		scanf("%i", &sample.ass2);
+			printf("Ass2 (0, 5, 10, 15, 20):   ");
+			scanf("%i", &sample.ass2);
 
-		printf("Decision: %i\n", dt_decide(dec, &sample));
-		getchar();
-	} 
-	
-	if (!interactive) {
+			printf("Decision: %i\n", dt_decide(dec, &sample));
+			getchar();
+		} 
+	} else {
 		int pass = 0;
-
 		for (int i=0; i<num_samples; i++) {
 			int res = dt_decide(dec, &samples[i]);
 

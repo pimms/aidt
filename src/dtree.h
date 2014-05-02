@@ -19,6 +19,7 @@ struct decision {
 	int value;
 	struct decision *next;
 	struct decision *dest;
+	struct decision *parent;
 };
 
 
