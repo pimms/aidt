@@ -64,7 +64,7 @@ filter_where(const struct sample *samples, int count,
 		bool all_success = true;
 
 		while (w) {
-			if (field_value(&samples[i], w->field) == w->value) 
+			if (field_value(&samples[i], w->field) != w->value) 
 				all_success = false;
 			w = w->next;
 		}
@@ -101,6 +101,21 @@ sample_stats(const struct sample *samples, int count)
 		free(vals);
 		printf("\n");
 	}
+}
+
+void
+sample_print(const struct sample *sample)
+{
+	printf("SAMPLE: {[");
+
+	for (int i=0; i<SAMPLE_NUM_FIELDS; i++) {
+		if (i == SAMPLE_RESULT_FIELD)
+			continue;
+		printf(" %i=%i", i, field_value(sample, i));
+	}
+
+	printf(" ] => %i=%i}\n",SAMPLE_RESULT_FIELD, 
+							field_value(sample, SAMPLE_RESULT_FIELD));
 }
 
 double

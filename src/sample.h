@@ -1,7 +1,6 @@
 #ifndef __SAMPLE_H__
 #define __SAMPLE_H__
 
-#include "aidt.h"
 #include <stdbool.h>
 
 #define SAMPLE_NUM_FIELDS 4
@@ -56,6 +55,10 @@ struct sample* filter_where(const struct sample*, int,
 /* Print statistics about the samples
  */
 void sample_stats(const struct sample *samples, int count);
+
+/* Prints the fields of a single sample
+ */
+void sample_print(const struct sample *sample);
 
 /* Calculate the gini impurity of field [field] for all the samples.
  */

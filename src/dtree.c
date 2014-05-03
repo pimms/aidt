@@ -9,8 +9,12 @@
 static struct decision* dt_alloc();
 static struct decision* dt_parse_samples(const struct sample*, int,
 										 struct where*);
+static void dt_append_next(struct decision *root, struct decision *next);
+
 static int best_field_where(const struct sample*, int, struct where*);
 static bool is_set_ambiguous(const struct sample*, int);
+static void majority_result(const struct sample*, int, unsigned*field, int*val);
+static struct decision* majority_result_node(const struct sample*, int);
 static void print_set_info(const struct sample*, int, struct where*);
 
 
@@ -56,88 +60,82 @@ dt_alloc()
 static struct decision*
 dt_parse_samples(const struct sample *samples, int max, struct where *where)
 {
-	/* I believe this entire function is wrong, and it must subsequently
-	 * be duly punished. The code is however too complicated to comprehend
-	 * by mere mortals, so I will rewrite the entire thing first thing 
-	 * in the evening.
-	 */
-	if (max <= 0) {
-		printf("error: empty set given to dt_parse_samples\n");
-		return NULL;
-	}
+	bool ambiguous = is_set_ambiguous(samples, max);
+	int best_field = best_field_where(samples, max, where);
 
-	struct sample *wsamples;
-	int count = 0;
-	wsamples = filter_where(samples, max, where, &count);
+	if (best_field < 0 || !ambiguous) 
+		return majority_result_node(samples, max);
 
-	if (count <= 0) {
-		free(wsamples);
-		return NULL;
-	}
 
-	print_set_info(samples, max, where);
-
-	// If there is no best field or the set is unambiguous, return
-	// a leaf node
-	int bestField = best_field_where(wsamples, max, where);
-	if (bestField < 0 || !is_set_ambiguous(samples, max)) {
-		struct decision *d = dt_alloc();
-		d->field = SAMPLE_RESULT_FIELD;
-		d->value = field_value(wsamples, SAMPLE_RESULT_FIELD);
-		free(wsamples);
-		return d;
-	}
-
+	// The first call has no defined where, and it must be explicitly
+	// deleted. Other calls only need append a new where-clause and
+	// give it proper filters.
+	struct where *w = where_alloc();
+	if (where)	 where->next = w;
+	else		 where = w;
+	w->field = best_field;
+	
+	// Get all the unique values from the set
 	int unique = 0;
-	int *vals = unique_values(samples, max, &unique, bestField);
-	struct decision *dbase = NULL;
-	struct decision *d = NULL;
-	struct where *wbase = where;
+	int *vals = unique_values(samples, max, &unique, best_field);
 
-	while (wbase && wbase->next)
-		wbase = wbase->next;
+	// The decision tree we are returning
+	struct decision *dec = NULL;
 
 	for (int i=0; i<unique; i++) {
-		struct where *w = where_alloc();
-		w->field = bestField;
+		// Create a subset filtered for s->{best_field} = V[i]
 		w->value = vals[i];
-		if (!where) {
-			where = w;
-			wbase = w;
-		} else 
-			wbase->next = w;
+		int wmax = 0;
+		struct sample *wsamples = filter_where(samples, max, where, &wmax);
 
-		struct decision *p = d;
-		d = dt_alloc();
-		if (!p) dbase = d;
-		else 	p->next = d;
+		// If the filtered subset is equal to the superset, the training
+		// data is ambiguous. Return a leaf node with the majority result
+		if (wmax == max) {
+			printf("Ambiguity in training set:\n\t");
+			where_print(where);
+			for (int j=0; j<max; j++) {
+				printf("\t");
+				sample_print(&samples[j]);
+			}
+			struct decision *mrn = majority_result_node(samples, max);		
 
-		// Parse the nodes with the temporary WHERE-clause
-		struct decision *dst = dt_parse_samples(wsamples, count, where);
-		if (dst) {
-			dst->parent = d;
-			d->dest = dst;
-			d->field = bestField;
-			d->value = vals[i];
-		} else {
-			// No valid subtree found: this is a leaf node
-			d->field = SAMPLE_RESULT_FIELD;
-			d->value = field_value(wsamples, SAMPLE_RESULT_FIELD);
+			printf("\tassigning majority value %i=%i\n\n",
+					mrn->field, mrn->value);
+			return mrn;
 		}
 
-		// Clean up temporary WHERE-clause
-		if (wbase == w) {
-			wbase = NULL;
-			where = NULL;
-		} else 
-			wbase->next = NULL;
-		where_destroy(w);
+		// Create a branch-node
+		struct decision *d = dt_alloc();
+		d->field = best_field;
+		d->value = vals[i];
+		
+		// Append the branch to the tree
+		if (!dec) 	dec = d;
+		else 		dt_append_next(dec, d);
+
+		// Create a subtree
+		struct decision *sub = dt_parse_samples(wsamples, wmax, where);
+		sub->parent = d;
+		d->dest = sub;
+	
+		free(wsamples);
 	}
 
+	if (where != w)
+		where->next = NULL;
+	where_destroy(w);
 	free(vals);
-	free(wsamples);
-	return dbase;
+	return dec;
 }
+
+static void 
+dt_append_next(struct decision *root, struct decision *next)
+{
+	while (root->next)
+		root = root->next;
+	root->next = next;
+}
+
 
 static int
 best_field_where(const struct sample *samples, int count, struct where *where)
@@ -173,6 +171,40 @@ is_set_ambiguous(const struct sample *samples, int count)
 	}
 
 	return false;
+}
+
+static void
+majority_result(const struct sample *samples, int count, unsigned *field, int *val)
+{
+	int unique;
+	int *vals = unique_values(samples, count, &unique, SAMPLE_RESULT_FIELD);
+	int *occurs = (int*)malloc(sizeof(int) * unique);
+	for (int i=0; i<unique; i++) 
+		occurs[i] = value_count(samples, count, vals[i], SAMPLE_RESULT_FIELD);
+
+	*field = SAMPLE_RESULT_FIELD;
+	*val = -1;
+	for (int i=0; i<unique; i++) {
+		if (occurs[i] > *val) {
+			*val = vals[i];
+		}
+	}
+
+	free(vals);
+	free(occurs);
+}
+
+static struct decision*
+majority_result_node(const struct sample *samples, int count) 
+{
+	unsigned field = 0;
+	int val = 0;
+	majority_result(samples, count, &field, &val);
+
+	struct decision *d = dt_alloc();
+	d->field = field;
+	d->value = val;
+	return d;
 }
 
 static void 
@@ -223,6 +255,10 @@ static const struct decision* dt_deque_pop_front(struct dt_deque*);
 void
 print_decision_tree(const struct decision *d, FILE *file) 
 {
+	printf("[DECISION TREE]\n");
+	printf("ALL paths from the root node to the leaf nodes are printed.\n");
+	printf("Each line represents one path. Each bracket represents one node.\n\n");
+	
 	struct dt_deque *dq = dt_deque_create();
 	dt_deque_push(dq, d);
 

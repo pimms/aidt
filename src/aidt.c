@@ -6,7 +6,7 @@
 #include "sample.h"
 #include "dtree.h"
 
-#define SIMPLE_SET 
+//#define SIMPLE_SET 
 
 
 int main(int argc, char **argv) {
@@ -19,6 +19,7 @@ int main(int argc, char **argv) {
 		{ASTAR, true, 0, true},
 		{ASTAR, true, 20, true},
 		{ASTAR, false, 10, true},
+		{ASTAR, false, 20, false},
 		{DTREE, false, 10, false},
 		{GAMES, true, 10, true},
 	};
@@ -97,7 +98,7 @@ int main(int argc, char **argv) {
 			printf("Ass2 (0, 5, 10, 15, 20):   ");
 			scanf("%i", &sample.ass2);
 
-			printf("Decision: %i\n", dt_decide(dec, &sample));
+			printf("Decision: %i\n\n", dt_decide(dec, &sample));
 			getchar();
 		} 
 	} else {
@@ -106,7 +107,7 @@ int main(int argc, char **argv) {
 			int res = dt_decide(dec, &samples[i]);
 
 			if (res == -1)
-				printf("Invalid decision for student %i\n", i+1);
+				printf("No decision available for student %i\n", i+1);
 			else if (res == 1)
 				pass++;
 
