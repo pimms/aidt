@@ -140,7 +140,7 @@ dt_append_next(struct decision *root, struct decision *next)
 static int
 best_field_where(const struct sample *samples, int count, struct where *where)
 {
-	// Return the field with the lowest information gain value which is 
+	// Return the field with the highest information gain value which is 
 	// not mentioned by any where-clause
 	double bestval = -1000000;
 	int best = -1;
