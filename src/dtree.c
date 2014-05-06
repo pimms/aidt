@@ -133,7 +133,10 @@ dt_parse_samples(const struct sample *samples, int max, struct where *where)
 		else
 			printf("No best field:\n");
 		print_set_info(samples, max, where);
-		return majority_result_node(samples, max);
+		
+		struct decision *d = majority_result_node(samples, max);
+		printf("\tLeaf with majority value %i -> %i\n", d->field, d->value);
+		return d;
 	}
 
 
@@ -163,11 +166,11 @@ dt_parse_samples(const struct sample *samples, int max, struct where *where)
 		if (wmax == max) {
 			printf("Ambiguity in training set:\n\t");
 			print_set_info(samples, max, where);
-			struct decision *mrn = majority_result_node(samples, max);		
+			dec = majority_result_node(samples, max);		
 
 			printf("\tassigning majority value %i=%i\n\n",
-					mrn->field, mrn->value);
-			return mrn;
+					dec->field, dec->value);
+			goto dt_parse_samples_cleanup;
 		}
 
 		// Create a branch-node
@@ -192,6 +195,7 @@ dt_parse_samples(const struct sample *samples, int max, struct where *where)
 		free(wsamples);
 	}
 
+dt_parse_samples_cleanup:
 	if (where != w)
 		where_destroy(where_pop(where));
 	else
@@ -256,9 +260,11 @@ majority_result(const struct sample *samples, int count, unsigned *field, int *v
 
 	*field = SAMPLE_RESULT_FIELD;
 	*val = -1;
+	int best = 0;
 	for (int i=0; i<unique; i++) {
-		if (occurs[i] > *val) {
+		if (occurs[i] > best) {
 			*val = vals[i];
+			best = occurs[i];
 		}
 	}
 

@@ -127,7 +127,7 @@ sample_stats(const struct sample *samples, int count)
 void
 sample_print(const struct sample *sample)
 {
-	printf("SAMPLE: {[");
+	printf("SAMPLE: {id=%2i [", sample->id);
 
 	for (int i=0; i<SAMPLE_NUM_FIELDS; i++) {
 		if (i == SAMPLE_RESULT_FIELD)

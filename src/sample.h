@@ -33,6 +33,7 @@ struct sample  {
 	int	ass1;	// bool
 	int	ass2;	// ass2_t
 	int	pass;	// bool
+	int id; 	// NOT a decision parameter
 };
 
 
