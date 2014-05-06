@@ -18,7 +18,6 @@ static struct decision* majority_result_node(const struct sample*, int);
 static void print_set_info(const struct sample*, int, struct where*);
 
 
-// Decision wrapper for printing
 struct dt_deque {
 	int size;
 	int head;
@@ -299,8 +298,6 @@ print_set_info(const struct sample *samples, int count, struct where *where)
 
 
 /** Printing of Decision Tree **/
-
-
 void
 print_decision_tree(const struct decision *d, FILE *file) 
 {
@@ -355,6 +352,7 @@ print_path(const struct decision *leaf)
 }
 
 
+/** dt_deque **/
 static struct dt_deque*
 dt_deque_create()
 {
