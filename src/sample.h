@@ -3,7 +3,12 @@
 
 #include <stdbool.h>
 
+// The number of integral fields in a sample. More fields exists, but
+// the first "SAMPLE_NUM_FIELDS" are guaranteed to be of type "int32" 
+// and contain data related to the training set.
 #define SAMPLE_NUM_FIELDS 4
+
+// The field index of the resulting field.
 #define SAMPLE_RESULT_FIELD 3
 
 enum topic {
@@ -43,6 +48,8 @@ struct where* where_alloc();
 void where_destroy(struct where*);
 void where_print(struct where*);
 bool is_field_clausule(struct where*, unsigned);
+void where_append(struct where*, struct where*);
+struct where* where_pop(struct where*);
 
 /* Create a subset of the samples given a sort on the where
  * clauses. The returned array must be manually freed by the caller, and 

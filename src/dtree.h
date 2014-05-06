@@ -28,6 +28,9 @@ struct decision* dt_create(const struct sample*, int count);
 int dt_decide(const struct decision*, const struct sample*);
 void dt_destroy(struct decision*);
 
+// Ensure that all nodes has the same value
+void dt_assert_valid(struct decision *);
+
 void print_decision_tree(const struct decision*, FILE*);
 
 #endif /*__DTREE_H__*/

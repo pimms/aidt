@@ -18,6 +18,25 @@ static struct decision* majority_result_node(const struct sample*, int);
 static void print_set_info(const struct sample*, int, struct where*);
 
 
+// Decision wrapper for printing
+struct dt_deque {
+	int size;
+	int head;
+	int tail;
+	const struct decision **d;
+};
+
+static void print_path(const struct decision *leaf);
+
+static struct dt_deque* dt_deque_create();
+static void dt_deque_destroy(struct dt_deque*);
+static int dt_deque_size(struct dt_deque*);
+static void dt_deque_push(struct dt_deque*, const struct decision*);
+static const struct decision* dt_deque_pop_back(struct dt_deque*);
+static const struct decision* dt_deque_pop_front(struct dt_deque*);
+
+
+
 struct decision*
 dt_create(const struct sample *samples, int count)
 {
@@ -49,6 +68,51 @@ dt_destroy(struct decision *dec)
 	free(dec);
 }
 
+void 
+dt_assert_valid(struct decision *dec)
+{
+	bool error = false;
+	const struct decision *d = dec;
+	struct dt_deque *dq = dt_deque_create();
+	dt_deque_push(dq, d);
+
+	printf("[ASSERTING VALIDITY OF DECISION TREE]\n");
+
+	while (dt_deque_size(dq)) {
+		d = dt_deque_pop_front(dq);
+		if (d->dest) {
+			dt_deque_push(dq, d->dest);
+
+			// Assert parent relationships
+			struct decision *c = d->dest;
+			while (c) {
+				if (c->parent != d) {
+					printf("\t[ERROR]: Child node does not recognize parent\n");
+					error = true;
+				}
+				c = c->next;
+			}
+		}
+		
+		// Assert field-equality
+		while (d->next) {
+			if (d->field != d->next->field) {
+				printf("\t[ERROR]: Invalid tree! One node contains multiple\n"
+						"\tdefinitions for more than one field\n");
+				error = true;
+			}
+			d = d->next;
+		}
+	}
+
+	if (!error)
+		printf("\tNo errors found\n");
+	else
+		printf("\tErrors occurred. The tree's judgement is impaired.\n");
+
+	dt_deque_destroy(dq);
+}
+
 static struct decision*
 dt_alloc()
 {
@@ -63,15 +127,21 @@ dt_parse_samples(const struct sample *samples, int max, struct where *where)
 	bool ambiguous = is_set_ambiguous(samples, max);
 	int best_field = best_field_where(samples, max, where);
 
-	if (best_field < 0 || !ambiguous) 
+	if (best_field < 0 || !ambiguous)  {
+		if (!ambiguous) 
+			printf("Non-ambiguous set:\n");
+		else
+			printf("No best field:\n");
+		print_set_info(samples, max, where);
 		return majority_result_node(samples, max);
+	}
 
 
 	// The first call has no defined where, and it must be explicitly
 	// deleted. Other calls only need append a new where-clause and
 	// give it proper filters.
 	struct where *w = where_alloc();
-	if (where)	 where->next = w;
+	if (where)	 where_append(where, w);
 	else		 where = w;
 	w->field = best_field;
 	
@@ -92,11 +162,7 @@ dt_parse_samples(const struct sample *samples, int max, struct where *where)
 		// data is ambiguous. Return a leaf node with the majority result
 		if (wmax == max) {
 			printf("Ambiguity in training set:\n\t");
-			where_print(where);
-			for (int j=0; j<max; j++) {
-				printf("\t");
-				sample_print(&samples[j]);
-			}
+			print_set_info(samples, max, where);
 			struct decision *mrn = majority_result_node(samples, max);		
 
 			printf("\tassigning majority value %i=%i\n\n",
@@ -115,15 +181,21 @@ dt_parse_samples(const struct sample *samples, int max, struct where *where)
 
 		// Create a subtree
 		struct decision *sub = dt_parse_samples(wsamples, wmax, where);
-		sub->parent = d;
 		d->dest = sub;
+
+		// Reference "dec" from all sibling nodes of sub
+		while (sub) {
+			sub->parent = dec;
+			sub = sub->next;
+		}
 	
 		free(wsamples);
 	}
 
 	if (where != w)
-		where->next = NULL;
-	where_destroy(w);
+		where_destroy(where_pop(where));
+	else
+		where_destroy(w);
 	free(vals);
 	return dec;
 }
@@ -210,46 +282,17 @@ majority_result_node(const struct sample *samples, int count)
 static void 
 print_set_info(const struct sample *samples, int count, struct where *where)
 {
-	printf("items: %i\n", count);
-	printf("ambiguous: %s\n", is_set_ambiguous(samples, count) ? "yes" : "no");
+	printf("\t");
 	where_print(where);
-	
-	bool printed_info = false;
-	for (int i=0; i<SAMPLE_NUM_FIELDS; i++) {
-		if (i != SAMPLE_RESULT_FIELD && !is_field_clausule(where, i)) {
-			if (!printed_info) {
-				printf("Uncategorized fields:\n");
-				printed_info = true;
-			}
-
-			printf("field %i info gain: %g\n",
-					i, info_gain(samples, count, i));
-		}
+	for (int j=0; j<count; j++) {
+		printf("\t");
+		sample_print(&samples[j]);
 	}
-
-	printf("\n");
 }
 
 
 
 /** Printing of Decision Tree **/
-
-// Decision wrapper for printing
-struct dt_deque {
-	int size;
-	int head;
-	int tail;
-	const struct decision **d;
-};
-
-static void print_path(const struct decision *leaf);
-
-static struct dt_deque* dt_deque_create();
-static void dt_deque_destroy(struct dt_deque*);
-static int dt_deque_size(struct dt_deque*);
-static void dt_deque_push(struct dt_deque*, const struct decision*);
-static const struct decision* dt_deque_pop_back(struct dt_deque*);
-static const struct decision* dt_deque_pop_front(struct dt_deque*);
 
 
 void

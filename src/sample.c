@@ -51,6 +51,27 @@ is_field_clausule(struct where *where, unsigned field)
 	return false;
 }
 
+
+void 
+where_append(struct where *w, struct where *n)
+{
+	while (w->next)
+		w = w->next;
+	w->next = n;
+}
+
+struct where*
+where_pop(struct where *w)
+{
+	struct where *p = w;
+	while (w->next) {
+		p = w;
+		w = w->next;
+	}
+	p->next = NULL;
+	return w;
+}
+
 struct sample*
 filter_where(const struct sample *samples, int count, 
 			 struct where *where, int *n)

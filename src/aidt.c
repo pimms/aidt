@@ -79,6 +79,8 @@ int main(int argc, char **argv) {
 		exit(1);
 	}
 
+	dt_assert_valid(dec);
+
 	print_decision_tree(dec, stdout);
 
 	
